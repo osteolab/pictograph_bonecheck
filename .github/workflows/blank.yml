@@ -38,7 +38,7 @@ jobs:
           import requests
 
           def clean_up_github_images():
-              repo_name = "osteolab/pictograph_bonecheck"  # Replace with your GitHub repository name
+              repo_name = "osteolab/pictograph_bonecheck"
               headers = {"Authorization": f"Bearer ${{secrets.GITHUB_TOKEN}}"}
               contents_url = f"https://api.github.com/repos/{repo_name}/contents/"
 
@@ -51,7 +51,7 @@ jobs:
                   # Filter for .png files
                   images = [f for f in files if f["name"].endswith(".png")]
 
-                  # Sort images by name or timestamp (if applicable)
+                  # Sort images by name
                   images = sorted(images, key=lambda x: x["name"], reverse=True)
 
                   # Keep the last 10 images
@@ -67,12 +67,11 @@ jobs:
                                   "sha": sha
                               }
                           )
-                          if delete_response.status_code == 200:
-                              print(f"Deleted: {image['name']}")
-                          else:
-                              print(f"Failed to delete {image['name']}: {delete_response.text}")
+                          # Check for errors but don't print unnecessary logs
+                          if not delete_response.ok:
+                              raise Exception(f"Failed to delete {image['name']}: {delete_response.text}")
               except Exception as e:
-                  print(f"Error occurred: {e}")
+                  raise RuntimeError(f"Error occurred during cleanup: {e}")
 
           clean_up_github_images()
           EOF
