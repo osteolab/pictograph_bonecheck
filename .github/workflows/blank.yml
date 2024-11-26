@@ -1,0 +1,78 @@
+name: Clean Up Old Images
+
+on:
+  # Triggers the workflow on push or pull request events for the "main" branch
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+  # Allows you to run this workflow manually from the Actions tab
+  workflow_dispatch:
+
+  # Triggers the workflow on a schedule (every day at midnight UTC)
+  schedule:
+    - cron: '0 0 * * *'
+
+jobs:
+  clean-up-images:
+    runs-on: ubuntu-latest
+
+    steps:
+      # Checks out your repository so the workflow can access its contents
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # Set up Python environment
+      - name: Set up Python
+        uses: actions/setup-python@v3
+        with:
+          python-version: 3.x
+
+      # Install required dependencies
+      - name: Install dependencies
+        run: pip install requests
+
+      # Run the cleanup script
+      - name: Clean up old images
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python - <<EOF
+          import requests
+
+          def clean_up_github_images():
+              repo_name = "osteolab/pictograph_bonecheck"  # Replace with your GitHub repository name
+              headers = {"Authorization": f"token ${{secrets.GITHUB_TOKEN}}"}
+              url = f"https://api.github.com/repos/{repo_name}/contents/"
+
+              try:
+                  # Fetch repository contents
+                  response = requests.get(url, headers=headers)
+                  response.raise_for_status()
+                  files = response.json()
+
+                  # Filter for .png files
+                  images = [f for f in files if f["name"].endswith(".png")]
+
+                  # Sort images by name (or other logic if applicable)
+                  images = sorted(images, key=lambda x: x["name"], reverse=True)
+
+                  # Keep the last 10 images
+                  if len(images) > 10:
+                      for image in images[10:]:
+                          delete_url = image["url"]
+                          delete_response = requests.delete(
+                              delete_url,
+                              headers=headers,
+                              json={"message": f"Delete old image {image['name']}"}
+                          )
+                          if delete_response.status_code == 200:
+                              print(f"Deleted: {image['name']}")
+                          else:
+                              print(f"Failed to delete {image['name']}: {delete_response.text}")
+              except Exception as e:
+                  print(f"Error occurred: {e}")
+
+          clean_up_github_images()
+          EOF
