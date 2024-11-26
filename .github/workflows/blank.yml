@@ -2,68 +2,51 @@ name: Clean GitHub Images
 
 on:
   schedule:
-    - cron: "0 * * * *"  # Runs every hour
-  workflow_dispatch:  # Allow manual trigger
+    - cron: '*/1 * * * *' # Run every minute
+  workflow_dispatch:
 
 jobs:
-  cleanup:
+  clean_images:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Setup Python
+      - name: Set up Python
         uses: actions/setup-python@v4
         with:
-          python-version: '3.x'
+          python-version: 3.x
 
-      - name: Install Dependencies
+      - name: Install dependencies
         run: pip install requests
 
-      - name: Run Cleanup Script
+      - name: Run cleanup script
         env:
-          GITHUB_REPO: ${{ github.repository }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPO: ${{ github.repository }}
         run: |
           python -c "
-import requests
+          import requests
+          import base64
 
-def clean_up_github_images(repo_name, token):
-    try:
-        url = f'https://api.github.com/repos/{repo_name}/contents/'
-        headers = {
-            'Authorization': f'token {token}',
-            'Content-Type': 'application/json',
-        }
+          def clean_up_github_images(repo_name, token):
+              url = f'https://api.github.com/repos/{repo_name}/contents/'
+              headers = {'Authorization': f'token {token}'}
+              response = requests.get(url, headers=headers)
+              if response.status_code == 200:
+                  files = response.json()
+                  image_files = [f for f in files if f['name'].endswith('.png')]
+                  image_files = sorted(image_files, key=lambda x: x['name'], reverse=True)
+                  for file in image_files[10:]:
+                      del_url = f'https://api.github.com/repos/{repo_name}/contents/{file["path"]}'
+                      del_response = requests.delete(del_url, headers={
+                          'Authorization': f'token {token}',
+                          'Content-Type': 'application/json'
+                      }, json={'message': 'Deleting old images', 'sha': file['sha']})
+                      if del_response.status_code not in [200, 204]:
+                          print(f'Failed to delete: {file["name"]}')
+              else:
+                  print('Failed to fetch repository contents.')
 
-        response = requests.get(url, headers=headers)
-        if response.status_code == 200:
-            files = response.json()
-            image_files = [file for file in files if file['name'].startswith('riskfx') and file['name'].endswith('.png')]
-
-            # Sort by name (assuming timestamp in filenames provides correct order)
-            image_files = sorted(image_files, key=lambda x: x['name'], reverse=True)
-
-            # Keep only the latest 10 images
-            if len(image_files) > 10:
-                old_files = image_files[10:]
-                for file in old_files:
-                    path = file['path']
-                    delete_url = f'https://api.github.com/repos/{repo_name}/contents/{path}'
-                    delete_data = {
-                        'message': f'Deleting old image: {path}',
-                        'sha': file['sha']
-                    }
-                    delete_response = requests.delete(delete_url, headers=headers, json=delete_data)
-                    if delete_response.status_code not in [200, 204]:
-                        raise Exception(f'Failed to delete {path}: {delete_response.json()}')
-        else:
-            raise Exception(f'Failed to fetch contents: {response.json()}')
-    except Exception as e:
-        print(f'An error occurred during cleanup: {e}')
-
-repo = '${{ env.GITHUB_REPO }}'
-token = '${{ env.GITHUB_TOKEN }}'
-clean_up_github_images(repo, token)
+          clean_up_github_images('${{ github.repository }}', '${{ secrets.GITHUB_TOKEN }}')
           "
