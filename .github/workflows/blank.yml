@@ -1,42 +1,67 @@
-run: |
-  python - <<EOF
+name: Clean Up Old Images
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+  workflow_dispatch:
+  schedule:
+    - cron: '*/30 * * * *'  # Every 30 minutes
+
+jobs:
+  clean-up-images:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.x'
+
+      - name: Install requests package
+        run: pip install requests
+
+      - name: Clean up old images
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python3 <<EOF
 import os
 import requests
 
-def clean_up_github_images():
-    repo_name = "osteolab/pictograph_bonecheck"
-    headers = {"Authorization": f"Bearer {os.environ['GITHUB_TOKEN']}"}
-    contents_url = f"https://api.github.com/repos/{repo_name}/contents/"
+REPO = "osteolab/pictograph_bonecheck"
+API_URL = f"https://api.github.com/repos/{REPO}/contents/"
+HEADERS = {
+    "Authorization": f"Bearer {os.environ['GITHUB_TOKEN']}",
+    "Accept": "application/vnd.github.v3+json"
+}
 
-    try:
-        # Fetch repository contents
-        response = requests.get(contents_url, headers=headers)
-        response.raise_for_status()
-        files = response.json()
+def clean_up_images():
+    response = requests.get(API_URL, headers=HEADERS)
+    if response.status_code != 200:
+        raise Exception(f"Failed to fetch repo contents: {response.text}")
+    
+    files = response.json()
+    images = [f for f in files if f["name"].endswith(".png")]
+    images = sorted(images, key=lambda x: x["name"], reverse=True)
 
-        # Filter for .png files
-        images = [f for f in files if f["name"].endswith(".png")]
+    for image in images[10:]:  # Keep 10 most recent
+        delete_url = f"https://api.github.com/repos/{REPO}/contents/{image['path']}"
+        delete_response = requests.delete(
+            delete_url,
+            headers=HEADERS,
+            json={
+                "message": f"Auto delete old image: {image['name']}",
+                "sha": image["sha"]
+            }
+        )
+        if delete_response.status_code != 200:
+            raise Exception(f"Failed to delete {image['name']}: {delete_response.text}")
+        print(f"Deleted {image['name']}")
 
-        # Sort images by name
-        images = sorted(images, key=lambda x: x["name"], reverse=True)
-
-        # Keep the last 10 images
-        if len(images) > 10:
-            for image in images[10:]:
-                delete_url = f"https://api.github.com/repos/{repo_name}/contents/{image['path']}"
-                sha = image['sha']
-                delete_response = requests.delete(
-                    delete_url,
-                    headers=headers,
-                    json={
-                        "message": f"Delete old image {image['name']}",
-                        "sha": sha
-                    }
-                )
-                if not delete_response.ok:
-                    raise Exception(f"Failed to delete {image['name']}: {delete_response.text}")
-    except Exception as e:
-        raise RuntimeError(f"Error occurred during cleanup: {e}")
-
-clean_up_github_images()
+clean_up_images()
 EOF
