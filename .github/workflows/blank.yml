@@ -7,7 +7,7 @@ on:
     branches: [ "main" ]
   workflow_dispatch:
   schedule:
-    - cron: '*/30 * * * *'  # Every 30 minutes
+    - cron: '*/30 * * * *'
 
 jobs:
   clean-up-images:
@@ -29,39 +29,40 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          python3 <<EOF
+          echo "Running cleanup script..."
+          echo "
 import os
 import requests
 
-REPO = "osteolab/pictograph_bonecheck"
-API_URL = f"https://api.github.com/repos/{REPO}/contents/"
+REPO = 'osteolab/pictograph_bonecheck'
+API_URL = f'https://api.github.com/repos/{REPO}/contents/'
 HEADERS = {
-    "Authorization": f"Bearer {os.environ['GITHUB_TOKEN']}",
-    "Accept": "application/vnd.github.v3+json"
+    'Authorization': f'Bearer {os.environ["GITHUB_TOKEN"]}',
+    'Accept': 'application/vnd.github.v3+json'
 }
 
 def clean_up_images():
     response = requests.get(API_URL, headers=HEADERS)
     if response.status_code != 200:
-        raise Exception(f"Failed to fetch repo contents: {response.text}")
+        raise Exception(f'Failed to fetch repo contents: {response.text}')
     
     files = response.json()
-    images = [f for f in files if f["name"].endswith(".png")]
-    images = sorted(images, key=lambda x: x["name"], reverse=True)
+    images = [f for f in files if f['name'].endswith('.png')]
+    images = sorted(images, key=lambda x: x['name'], reverse=True)
 
-    for image in images[10:]:  # Keep 10 most recent
-        delete_url = f"https://api.github.com/repos/{REPO}/contents/{image['path']}"
+    for image in images[10:]:
+        delete_url = f'https://api.github.com/repos/{REPO}/contents/{image["path"]}'
         delete_response = requests.delete(
             delete_url,
             headers=HEADERS,
             json={
-                "message": f"Auto delete old image: {image['name']}",
-                "sha": image["sha"]
+                'message': f'Auto delete old image: {image["name"]}',
+                'sha': image['sha']
             }
         )
         if delete_response.status_code != 200:
-            raise Exception(f"Failed to delete {image['name']}: {delete_response.text}")
-        print(f"Deleted {image['name']}")
+            raise Exception(f'Failed to delete {image["name"]}: {delete_response.text}')
+        print(f'Deleted {image["name"]}')
 
 clean_up_images()
-EOF
+" > script.py && python3 script.py
