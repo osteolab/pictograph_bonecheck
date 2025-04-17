@@ -14,33 +14,60 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Clean up old images using curl
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: 3.x
+
+      - name: Install dependencies
+        run: pip install requests
+
+      - name: Clean up old images
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          REPO: osteolab/pictograph_bonecheck
         run: |
-          echo "Fetching list of .png files from the repo root..."
+          python3 <<EOF
+import os
+import requests
 
-          response=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
-            -H "Accept: application/vnd.github.v3+json" \
-            https://api.github.com/repos/$REPO/contents/)
+def clean_up_github_images():
+    repo_name = "osteolab/pictograph_bonecheck"
+    token = os.environ['GITHUB_TOKEN']
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/vnd.github.v3+json"
+    }
+    contents_url = f"https://api.github.com/repos/{repo_name}/contents/"
 
-          png_files=$(echo "$response" | jq -r '.[] | select(.name | endswith(".png")) | "\(.name) \(.path) \(.sha)"')
+    try:
+        response = requests.get(contents_url, headers=headers)
+        response.raise_for_status()
+        files = response.json()
 
-          total=$(echo "$png_files" | wc -l)
-          echo "Total .png files: $total"
+        images = [f for f in files if f["name"].endswith(".png")]
+        images = sorted(images, key=lambda x: x["name"], reverse=True)
 
-          if [ "$total" -le 10 ]; then
-            echo "No cleanup needed (10 or fewer images)."
-            exit 0
-          fi
+        if len(images) > 10:
+            for image in images[10:]:
+                delete_url = f"https://api.github.com/repos/{repo_name}/contents/{image['path']}"
+                sha = image['sha']
+                delete_response = requests.delete(
+                    delete_url,
+                    headers=headers,
+                    json={
+                        "message": f"Delete old image {image['name']}",
+                        "sha": sha
+                    }
+                )
+                if not delete_response.ok:
+                    raise Exception(f"Failed to delete {image['name']}: {delete_response.text}")
+                print(f"Deleted: {image['name']}")
 
-          echo "$png_files" | sort -r | tail -n +11 | while read name path sha; do
-            echo "Deleting $name..."
+    except Exception as e:
+        raise RuntimeError(f"Error during cleanup: {e}")
 
-            curl -s -X DELETE \
-              -H "Authorization: token $GITHUB_TOKEN" \
-              -H "Accept: application/vnd.github.v3+json" \
-              -d "{\"message\":\"Delete old image $name\",\"sha\":\"$sha\"}" \
-              https://api.github.com/repos/$REPO/contents/$path
-          done
+clean_up_github_images()
+EOF
