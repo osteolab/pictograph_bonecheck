@@ -12,7 +12,7 @@ on:
 
   # Triggers the workflow on a schedule (every minute for testing)
   schedule:
-    - cron: '*/15 * * * *'
+    - cron: '*/30 * * * *'
 
 jobs:
   clean-up-images:
