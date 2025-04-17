@@ -1,77 +1,42 @@
-name: Clean Up Old Images
+run: |
+  python - <<EOF
+import os
+import requests
 
-on:
-  # Triggers the workflow on push or pull request events for the "main" branch
-  push:
-    branches: [ "main" ]
-  pull_request:
-    branches: [ "main" ]
+def clean_up_github_images():
+    repo_name = "osteolab/pictograph_bonecheck"
+    headers = {"Authorization": f"Bearer {os.environ['GITHUB_TOKEN']}"}
+    contents_url = f"https://api.github.com/repos/{repo_name}/contents/"
 
-  # Allows you to run this workflow manually from the Actions tab
-  workflow_dispatch:
+    try:
+        # Fetch repository contents
+        response = requests.get(contents_url, headers=headers)
+        response.raise_for_status()
+        files = response.json()
 
-  # Triggers the workflow on a schedule (every minute for testing)
-  schedule:
-    - cron: '*/30 * * * *'
+        # Filter for .png files
+        images = [f for f in files if f["name"].endswith(".png")]
 
-jobs:
-  clean-up-images:
-    runs-on: ubuntu-latest
+        # Sort images by name
+        images = sorted(images, key=lambda x: x["name"], reverse=True)
 
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+        # Keep the last 10 images
+        if len(images) > 10:
+            for image in images[10:]:
+                delete_url = f"https://api.github.com/repos/{repo_name}/contents/{image['path']}"
+                sha = image['sha']
+                delete_response = requests.delete(
+                    delete_url,
+                    headers=headers,
+                    json={
+                        "message": f"Delete old image {image['name']}",
+                        "sha": sha
+                    }
+                )
+                if not delete_response.ok:
+                    raise Exception(f"Failed to delete {image['name']}: {delete_response.text}")
+    except Exception as e:
+        raise RuntimeError(f"Error occurred during cleanup: {e}")
 
-      - name: Set up Python
-        uses: actions/setup-python@v3
-        with:
-          python-version: 3.x
-
-      - name: Install dependencies
-        run: pip install requests
-
-      - name: Clean up old images
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          python - <<EOF
-          import requests
-
-          def clean_up_github_images():
-              repo_name = "osteolab/pictograph_bonecheck"
-              headers = {"Authorization": f"Bearer ${{secrets.GITHUB_TOKEN}}"}
-              contents_url = f"https://api.github.com/repos/{repo_name}/contents/"
-
-              try:
-                  # Fetch repository contents
-                  response = requests.get(contents_url, headers=headers)
-                  response.raise_for_status()
-                  files = response.json()
-
-                  # Filter for .png files
-                  images = [f for f in files if f["name"].endswith(".png")]
-
-                  # Sort images by name
-                  images = sorted(images, key=lambda x: x["name"], reverse=True)
-
-                  # Keep the last 10 images
-                  if len(images) > 10:
-                      for image in images[10:]:
-                          delete_url = f"https://api.github.com/repos/{repo_name}/contents/{image['path']}"
-                          sha = image['sha']  # Required for deletion
-                          delete_response = requests.delete(
-                              delete_url,
-                              headers=headers,
-                              json={
-                                  "message": f"Delete old image {image['name']}",
-                                  "sha": sha
-                              }
-                          )
-                          # Check for errors but don't print unnecessary logs
-                          if not delete_response.ok:
-                              raise Exception(f"Failed to delete {image['name']}: {delete_response.text}")
-              except Exception as e:
-                  raise RuntimeError(f"Error occurred during cleanup: {e}")
-
-          clean_up_github_images()
-          EOF
+clean_up_github_images()
+EOF
